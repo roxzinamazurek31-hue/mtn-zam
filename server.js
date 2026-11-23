@@ -565,6 +565,6 @@ app.use((req, res) => {
   res.redirect('/');
 });
 
-app.listen(PORT, () => {
-  console.log(`Airtel x Starlink app running at http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Airtel x Starlink app running on 0.0.0.0:${PORT}`);
 });
